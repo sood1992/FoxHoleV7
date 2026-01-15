@@ -1,9 +1,34 @@
 # Foxhole Enterprise OS - cPanel Deployment Guide
 
-## Prerequisites
-- cPanel hosting with PHP 8.0+ support
-- MySQL 5.7+ database
-- SSL certificate (recommended)
+## Single Directory Deployment (Frontend + API together)
+
+This guide shows how to deploy both frontend and backend in the same `public_html` directory.
+
+---
+
+## Final Structure on Server
+
+```
+public_html/
+├── .htaccess              # Root routing (handles SPA + API)
+├── index.html             # Frontend entry point
+├── assets/                # Frontend JS/CSS (from build)
+│   ├── index-xxxxx.js
+│   └── index-xxxxx.css
+├── api/                   # Backend API
+│   ├── .htaccess          # API routing
+│   ├── .env               # API configuration
+│   ├── index.php          # API entry point
+│   ├── config/
+│   │   ├── app.php
+│   │   └── database.php
+│   └── src/
+│       ├── Controllers/
+│       ├── Middleware/
+│       ├── Services/
+│       └── Utils/
+└── uploads/               # File uploads (create this)
+```
 
 ---
 
@@ -11,17 +36,17 @@
 
 1. Login to cPanel
 2. Go to **MySQL Databases**
-3. Create database: `foxhole_db`
+3. Create database: `foxhole`
 4. Create user: `foxhole_user` with strong password
 5. Add user to database with **ALL PRIVILEGES**
 
-**Note:** cPanel prefixes your username, so actual names will be:
-- Database: `yourusername_foxhole_db`
+**Note:** cPanel prefixes your username:
+- Database: `yourusername_foxhole`
 - User: `yourusername_foxhole_user`
 
 ---
 
-## Step 2: Import Database
+## Step 2: Import Database Schema
 
 1. Go to **phpMyAdmin** in cPanel
 2. Select your database
@@ -33,117 +58,70 @@
 
 ## Step 3: Upload Backend (API)
 
-### Option A: Upload to subdomain (Recommended)
-Create subdomain: `api.yourdomain.com`
+Upload these folders/files to `public_html/api/`:
 
-1. In cPanel → **Subdomains** → Create `api`
-2. Document root: `public_html/api`
-3. Upload ALL files from `backend/` folder to `public_html/api/`
-
-### Option B: Upload to subdirectory
-1. Create folder: `public_html/foxhole-api/`
-2. Upload ALL files from `backend/` folder there
-
-### File Structure on Server:
 ```
-public_html/
-└── api/                    (or foxhole-api/)
-    ├── config/
-    │   ├── app.php
-    │   └── database.php
-    ├── database/
-    │   ├── schema.sql
-    │   └── seed.sql
-    ├── public/
-    │   ├── .htaccess
-    │   └── index.php
-    ├── src/
-    │   ├── Controllers/
-    │   ├── Middleware/
-    │   ├── Services/
-    │   └── Utils/
-    └── .env
+From: backend/
+├── config/           → public_html/api/config/
+├── src/              → public_html/api/src/
+└── .env.example      → public_html/api/.env (rename and edit)
+
+From: public_html/api/
+├── index.php         → public_html/api/index.php
+└── .htaccess         → public_html/api/.htaccess
 ```
+
+**Or simply:**
+1. Create folder `public_html/api/`
+2. Upload contents of `backend/config/` to `public_html/api/config/`
+3. Upload contents of `backend/src/` to `public_html/api/src/`
+4. Upload `public_html/api/index.php` (from this repo)
+5. Upload `public_html/api/.htaccess` (from this repo)
+6. Copy `.env.example` to `.env` and configure
 
 ---
 
-## Step 4: Configure Backend
+## Step 4: Configure API (.env)
 
-### Edit `.env` file on server:
+Create `public_html/api/.env`:
 
 ```env
-# Database Configuration
+# Database - Use your cPanel prefixed names
 DB_HOST=localhost
-DB_NAME=yourusername_foxhole_db
+DB_NAME=yourusername_foxhole
 DB_USER=yourusername_foxhole_user
-DB_PASS=your_secure_password
+DB_PASS=your_database_password
 
-# JWT Configuration (CHANGE THESE!)
-JWT_SECRET=generate-a-random-64-character-string-here
-JWT_EXPIRES=3600
-REFRESH_TOKEN_EXPIRES=604800
+# JWT Secret - Generate a random string!
+# Run: openssl rand -hex 32
+JWT_SECRET=paste-your-64-character-random-string-here
+JWT_EXPIRY=900
+REFRESH_TOKEN_EXPIRY=604800
 
-# App Configuration
+# App Settings
+APP_URL=https://yourdomain.com/api
+APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://api.yourdomain.com
 
-# CORS - Frontend URL
+# CORS - Your domain (no trailing slash)
 CORS_ORIGIN=https://yourdomain.com
-```
 
-### Generate JWT Secret:
-Use this to generate a random secret:
-```bash
-openssl rand -hex 32
-```
-Or use: https://randomkeygen.com/
-
----
-
-## Step 5: Configure .htaccess for API
-
-Make sure `backend/public/.htaccess` contains:
-
-```apache
-RewriteEngine On
-
-# Handle Authorization Header
-RewriteCond %{HTTP:Authorization} ^(.*)
-RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
-
-# Redirect to index.php
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php [QSA,L]
-
-# Security headers
-<IfModule mod_headers.c>
-    Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "DENY"
-    Header set X-XSS-Protection "1; mode=block"
-</IfModule>
-```
-
-### Root .htaccess (in api/ folder):
-
-Create `api/.htaccess`:
-```apache
-RewriteEngine On
-RewriteRule ^api/v1/(.*)$ public/index.php [QSA,L]
-RewriteRule ^(.*)$ public/$1 [QSA,L]
+# File Uploads
+UPLOAD_MAX_SIZE=52428800
+UPLOAD_PATH=../uploads
 ```
 
 ---
 
-## Step 6: Build Frontend
+## Step 5: Build Frontend
 
 On your local machine:
 
 ```bash
 cd frontend
 
-# Update .env with your API URL
-echo "VITE_API_URL=https://api.yourdomain.com/api/v1" > .env.production
+# Create production environment file
+echo "VITE_API_URL=/api" > .env.production
 
 # Install dependencies
 npm install
@@ -152,42 +130,42 @@ npm install
 npm run build
 ```
 
-This creates a `dist/` folder with production files.
+This creates a `dist/` folder.
 
 ---
 
-## Step 7: Upload Frontend
+## Step 6: Upload Frontend
 
-1. Upload ALL contents of `frontend/dist/` to `public_html/`
+Upload contents of `frontend/dist/` to `public_html/`:
 
-   OR to a subdomain like `app.yourdomain.com`
-
-### File Structure:
 ```
-public_html/
-├── assets/           (JS, CSS files)
-├── index.html
-└── ... other files
+frontend/dist/
+├── index.html        → public_html/index.html
+├── assets/           → public_html/assets/
+└── (other files)     → public_html/
 ```
 
 ---
 
-## Step 8: Configure Frontend .htaccess
+## Step 7: Upload Root .htaccess
 
-Create `public_html/.htaccess` for SPA routing:
+Upload `public_html/.htaccess` (from this repo) to `public_html/`:
 
-```apache
-RewriteEngine On
-RewriteBase /
+This file handles:
+- SPA routing (all non-file requests → index.html)
+- API routing (/api/* → api/index.php)
+- Security headers
+- Caching
 
-# Don't rewrite files or directories
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
-RewriteRule ^ - [L]
+---
 
-# Rewrite everything else to index.html
-RewriteRule ^ index.html [L]
+## Step 8: Create Uploads Directory
+
 ```
+public_html/uploads/
+```
+
+Set permissions: `755`
 
 ---
 
@@ -205,87 +183,123 @@ RewriteRule ^ index.html [L]
 
 ## Step 10: Test Deployment
 
-1. Visit `https://api.yourdomain.com/api/v1/auth/me`
-   - Should return: `{"success":false,"error":"Unauthorized"}`
-   - This means API is working!
+### Test API:
+```
+https://yourdomain.com/api/auth/me
+```
+Should return: `{"success":false,"error":"Unauthorized"}`
 
-2. Visit `https://yourdomain.com`
-   - Should show login page
+### Test Frontend:
+```
+https://yourdomain.com
+```
+Should show login page.
 
-3. Login with seed data:
-   - Email: `admin@neofox.in`
-   - Password: `password123`
+### Test Login:
+- Email: `admin@neofox.in`
+- Password: `password123`
+
+---
+
+## File Permissions
+
+Set via cPanel File Manager or SSH:
+
+```bash
+# Directories: 755
+find public_html -type d -exec chmod 755 {} \;
+
+# Files: 644
+find public_html -type f -exec chmod 644 {} \;
+
+# .env file: 600 (more secure)
+chmod 600 public_html/api/.env
+
+# Uploads directory: 755
+chmod 755 public_html/uploads
+```
 
 ---
 
 ## Troubleshooting
 
 ### API returns 500 error
-- Check PHP error logs in cPanel
-- Verify database credentials in `.env`
-- Check file permissions (644 for files, 755 for directories)
+1. Check PHP error logs in cPanel → Error Log
+2. Verify database credentials in `.env`
+3. Ensure all PHP files uploaded correctly
+4. Check PHP version is 8.0+
 
-### CORS errors in browser
-- Update `CORS_ORIGIN` in backend `.env`
-- Make sure it matches your frontend URL exactly
+### 404 on API routes
+1. Ensure `.htaccess` files are uploaded
+2. Check if mod_rewrite is enabled
+3. Verify file paths in index.php
 
 ### Login not working
-- Check browser console for errors
-- Verify API URL in frontend `.env`
-- Test API directly: `curl https://api.yourdomain.com/api/v1/auth/login`
+1. Check browser console for errors
+2. Verify API URL in network tab
+3. Test API directly: `curl https://yourdomain.com/api/auth/login`
 
 ### 404 on page refresh
-- Ensure `.htaccess` is uploaded
-- Check if `mod_rewrite` is enabled
+1. Ensure root `.htaccess` is present
+2. Check SPA routing rules
+
+### CORS errors
+1. Check `CORS_ORIGIN` in api/.env matches your domain exactly
+2. Include https:// in the URL
+3. No trailing slash
+
+---
+
+## Quick Upload Checklist
+
+```
+□ public_html/.htaccess (root)
+□ public_html/index.html (frontend)
+□ public_html/assets/ (frontend build)
+□ public_html/api/.htaccess
+□ public_html/api/.env
+□ public_html/api/index.php
+□ public_html/api/config/app.php
+□ public_html/api/config/database.php
+□ public_html/api/src/Controllers/*.php (11 files)
+□ public_html/api/src/Middleware/*.php (2 files)
+□ public_html/api/src/Services/*.php (4 files)
+□ public_html/api/src/Utils/*.php (4 files)
+□ public_html/uploads/ (create empty)
+□ Database imported (schema.sql + seed.sql)
+```
+
+---
+
+## Default Login Credentials
+
+| Role     | Email              | Password    |
+|----------|-------------------|-------------|
+| Admin    | admin@neofox.in   | password123 |
+| PM       | pm@neofox.in      | password123 |
+| Employee | editor@neofox.in  | password123 |
+
+**⚠️ CHANGE THESE PASSWORDS IMMEDIATELY AFTER FIRST LOGIN!**
 
 ---
 
 ## Security Checklist
 
-- [ ] Change all default passwords in seed data
-- [ ] Use strong JWT_SECRET (64+ characters)
-- [ ] Enable HTTPS/SSL
-- [ ] Set `APP_DEBUG=false` in production
-- [ ] Remove or secure phpMyAdmin access
-- [ ] Set proper file permissions
-- [ ] Enable cPanel firewall rules
+- [ ] Changed all default passwords
+- [ ] Generated strong JWT_SECRET (64+ chars)
+- [ ] Set APP_DEBUG=false
+- [ ] SSL/HTTPS enabled
+- [ ] .env file permissions set to 600
+- [ ] Removed phpMyAdmin default access (optional)
+- [ ] Database user has minimal required privileges
 
 ---
 
-## Default Login Credentials (CHANGE THESE!)
+## Optional: Custom Domain for API
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@neofox.in | password123 |
-| PM | pm@neofox.in | password123 |
-| Employee | editor@neofox.in | password123 |
+If you prefer `api.yourdomain.com`:
 
-**IMPORTANT:** Change these passwords immediately after first login!
-
----
-
-## File Permissions
-
-Set these permissions via cPanel File Manager or SSH:
-
-```bash
-# Directories: 755
-find . -type d -exec chmod 755 {} \;
-
-# Files: 644
-find . -type f -exec chmod 644 {} \;
-
-# .env file: 600 (more secure)
-chmod 600 .env
-```
-
----
-
-## Optional: Cron Jobs
-
-For scheduled tasks (like notifications), add in cPanel → Cron Jobs:
-
-```bash
-# Run every 5 minutes
-*/5 * * * * /usr/local/bin/php /home/username/public_html/api/cron/notifications.php
-```
+1. Create subdomain in cPanel
+2. Point it to `public_html/api/`
+3. Update frontend: `VITE_API_URL=https://api.yourdomain.com`
+4. Update CORS: `CORS_ORIGIN=https://yourdomain.com`
